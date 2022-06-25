@@ -1,13 +1,16 @@
-from typing import Dict
+from typing import Dict, Tuple
 
 import pygame
 import numpy as np
 import gym
 
-from actors.actors import Prey, Predator
+from actors.actors import Animal, Prey, Predator
 
 W_WIDTH = 1000
 W_HEIGHT = 1000
+
+PREY_COLOR = (0, 0, 255)
+PREDATOR_COLOR = (255, 0, 0)
 
 # ###############
 # Reward system #
@@ -25,7 +28,7 @@ W_HEIGHT = 1000
 # die = -5
 #################
 
-class CustomEnv(gym.Env):
+class WorldEnvironment(gym.Env):
     def __init__(self, config: Dict={}):
         n_preys = config["n_preys"]
         n_predators = config["n_predators"]
@@ -48,65 +51,118 @@ class CustomEnv(gym.Env):
             self.preys[i] = Predator(x, y, sex)
 
     def init_render(self):
-        import pygame
         pygame.init()
         self.window = pygame.display.set_mode((W_WIDTH, W_HEIGHT))
         self.clock = pygame.time.Clock()
 
     def reset(self):
         return 0
+    
+    def _execute_action(self, action: Dict, animal: Animal):
+        animal.x += action[0]
+        animal.y += action[1]
 
-    def step(self, actions: Dict[str, np.array]):
+    def step(self, actions: Dict[Animal, Tuple[int, int]]):
 
+        # Execute calculated actions
+        for p in self.preys:
+            self._execute_action(actions[p], p)
+
+        for p in self.predators:
+            self._execute_action(actions[p], p)
+        
+        # Calculate new rewards
         preys_rewards = np.full(self.preys.size, 0, dtype=int)
         predators_rewards = np.full(self.predators.size, 0, dtype=int)
-        for i, a in enumerate(actions["preys"]):
-            self.preys[i].execute_action(a)
-
-        for i, a in enumerate(actions["predators"]):
-            self.predators[i].execute_action(a)
         
-        for i, p_i in enumerate(self.preys):
-            for j, p_j in enumerate(self.preys[i + 1:]):
-                if (p_i.x == p_j.x) and (p_i.y == p_j.y) and \
-                        (p_i.sex != p_j.sex) and \
-                        (p_i.next_action != "mate") and (p_j.next_action != "mate") and \
-                        (p_i.pregnant == False) and (p_j.pregnant == False) and \
-                        (p_i.cooldown == 0) and (p_j.cooldown == 0) and \
-                        (p_i.next_action == None) and (p_j.next_action == None):
-                    p_i.next_action = "mate"
-                    p_j.next_action = "mate"
-                    preys_rewards[i] += self.reward_system["prey"]["mate"]
-                    preys_rewards[j] += self.reward_system["prey"]["mate"]
-                else:
-                    if (p_i.next_action == None):
-                        preys_rewards[i] += self.reward_system["prey"]["alive"]
-                    if (p_j.next_action == None):
-                        preys_rewards[j] += self.reward_system["prey"]["alive"]
-
-        for i, py in enumerate(self.predators):
-            for j, pr in enumerate(self.preys):
-                if (py.x == pr.x) and (py.y == pr.y) and (py.next_action != "die"):
-                    py.next_action = "die"
-                    pr.next_action = "eat"
+        # Rewards for predators
+        for i, pr in enumerate(self.predators):
+            
+            # Check if predator already has an action
+            if (pr.action_result != None):
+                continue
+            
+            for j, py in enumerate(self.preys):
+                if (py.x == pr.x) and (py.y == pr.y) and (py.action_result != "die"):
+                    py.action_result = "die"
+                    pr.action_result = "eat"
                     preys_rewards[i] += self.reward_system["prey"]["die"]
                     predators_rewards[j] += self.reward_system["prey"]["eat"]
-                # Implement mating
-
+                    
+                    break
             
+            # Check if a new action was given after interaction with other predators
+            if (pr.action_result != None):
+                continue
+            
+            # Interact with other predators
+            for j, pr_j in enumerate(self.predators[i + 1:]):
+                
+                # Check if predator already has an action
+                if (pr_j.action_result != None):
+                    continue
+                
+                if (pr.x == pr_j.x) and (pr.y == pr_j.y) and \
+                        (pr.sex != pr_j.sex) and \
+                        (pr.action_result != "mate") and (pr_j.action_result != "mate") and \
+                        (pr.pregnant == False) and (pr_j.pregnant == False) and \
+                        (pr.cooldown == 0) and (pr_j.cooldown == 0) and \
+                        (pr.action_result == None) and (pr_j.action_result == None):
+                    pr.action_result = "mate"
+                    pr_j.action_result = "mate"
+                    predators_rewards[i] += self.reward_system["predator"]["mate"]
+                    predators_rewards[j] += self.reward_system["predator"]["mate"]
+                    
+                    break
+                else:
+                    if (pr.action_result == None):
+                        predators_rewards[i] += self.reward_system["predator"]["alive"]
+                    if (pr_j.action_result == None):
+                        predators_rewards[j] += self.reward_system["predator"]["alive"]
+        
+        # Rewards for preys
+        for i, p_i in enumerate(self.preys):
+            
+            if (p_i.action_result != None):
+                continue
+            
+            for j, p_j in enumerate(self.preys[i + 1:]):
+                
+                if (p_j.action_result != None):
+                    continue
+                
+                if (p_i.x == p_j.x) and (p_i.y == p_j.y) and \
+                        (p_i.sex != p_j.sex) and \
+                        (p_i.action_result != "mate") and (p_j.action_result != "mate") and \
+                        (p_i.pregnant == False) and (p_j.pregnant == False) and \
+                        (p_i.cooldown == 0) and (p_j.cooldown == 0) and \
+                        (p_i.action_result == None) and (p_j.action_result == None):
+                    p_i.action_result = "mate"
+                    p_j.action_result = "mate"
+                    preys_rewards[i] += self.reward_system["prey"]["mate"]
+                    preys_rewards[j] += self.reward_system["prey"]["mate"]
+                    
+                    break
+                else:
+                    if (p_i.action_result == None):
+                        preys_rewards[i] += self.reward_system["prey"]["alive"]
+                    if (p_j.action_result == None):
+                        preys_rewards[j] += self.reward_system["prey"]["alive"]
+
         observation, reward, done, info = 0., 0., False, {}
         return observation, reward, done, info
     
     def render(self):
-        self.window.fill((0,0,0))
-        pygame.draw.circle(self.window, (0, 200, 200), (int(self.x), int(self.y)), 6)
-        # draw orientation
-        p1 = (self.x - 10 * np.cos(self.ang),self.y + 10 * np.sin(self.ang))
-        p2 = (self.x + 15 * np.cos(self.ang),self.y - 15 * np.sin(self.ang))
-        pygame.draw.line(self.window,(0,100,100),p1,p2,2)
+        
+        for p in self.preys:
+            pygame.draw.circle(self.window, PREY_COLOR, (p.x, p.y), 6)
+        
+        for p in self.predators:
+            pygame.draw.circle(self.window, PREDATOR_COLOR, (p.x, p.y), 6)
+        
         pygame.display.update()
 
-environment = CustomEnv()
+environment = WorldEnvironment()
 environment.init_render()
 run = True
 while run:
@@ -117,13 +173,18 @@ while run:
         "predators": []
     }
 
+    actions = {}
+    # Calculate new actions
     for i, p in enumerate(environment.preys):
-        p.get_action(environment.preys, environment.predators)
+        actions[p] = p.get_action(environment.preys, environment.predators)
 
     for i, p in enumerate(environment.predators):
-        p.get_action(environment.preys, environment.predators)
+        actions[p] = p.get_action(environment.preys, environment.predators)
 
+    # Execute the actions and calculate the rewads
     environment.step(actions)
+    
+    # Draw the new world after the time step
     environment.render()
 
 pygame.quit()

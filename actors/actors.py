@@ -5,21 +5,20 @@ class Animal():
         self.x = x
         self.y = y
         self.sex = sex
-        self.next_action = None
+        self.action_result = None
         
         self.pregnant = False
     
-    def execute_action(self, action: Dict):
-        if action["action"] == "mate":
-            if self.sex == 0:
-                self.pregnant = True
-        elif action["action"] == "move":
-            self.x += action["x"]
-            self.y += action["y"]
-    
     def get_action(self, preys, predators):
-        # Implement
-        pass
+        if self.next_action == "die":
+            return None
+        if self.next_action == "mate":
+            return None
+        if self.next_action == "eat":
+            return None
+        
+        #TODO: Use RL to calculate next move
+        return None
 
 class Prey(Animal):
     def __init__(self, x: int, y: int, sex: int, config: Dict):
